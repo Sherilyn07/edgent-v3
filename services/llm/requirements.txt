@@ -1,0 +1,8 @@
+# Just this service, for deploying it on its own.
+# On Colab use the combined ../requirements.txt instead.
+fastapi>=0.115,<0.117
+uvicorn[standard]>=0.30,<0.35
+pydantic-settings>=2.3,<3
+torch>=2.2
+transformers>=4.40,<5
+accelerate>=0.33

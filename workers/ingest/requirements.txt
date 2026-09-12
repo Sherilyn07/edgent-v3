@@ -1,0 +1,5 @@
+# The ingest worker only. Docling reads PDFs and Word documents and pulls in
+# layout and OCR models, which is most of this image's size -- and the reason
+# it is its own ECS Fargate service rather than sharing an image with
+# chat-worker (which never touches Docling at all).
+docling>=2.7,<3

@@ -1,0 +1,4 @@
+# The chat worker needs nothing beyond shared/requirements.txt. It never
+# touches Docling and, as of v3, never touches S3 either -- retrieval is a
+# database query now, not a fetch from storage. This is why it is a
+# noticeably smaller, faster-cold-starting image than ingest-worker's.

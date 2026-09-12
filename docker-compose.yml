@@ -1,0 +1,95 @@
+# Local development only — SQLite and a local Redis, so the whole v3 code
+# path (minus pgvector, minus Cognito, minus everything that only exists in
+# AWS) can be exercised on a laptop before any infrastructure in DEPLOY.md is
+# provisioned. This is build-order steps 1-2's validation harness.
+#
+#   docker compose up -d --build
+#
+# This is NOT the deployment. docker-compose.ec2.yml is what actually runs on
+# the EC2 Auto Scaling Group, against RDS and ElastiCache; the workers below
+# run as their own ECS Fargate services there, not as containers on that box.
+# Here, for a laptop, they are containers because that is the simplest way to
+# run four independent programs at once without four terminal tabs.
+
+name: edgentrag-v3-dev
+
+x-app-env: &app-env
+  ENV: local
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  DATABASE_URL: sqlite:////data/edgentrag.db
+  REDIS_URL: redis://redis:6379/0
+  S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  INGEST_QUEUE_URL: ${INGEST_QUEUE_URL:?set INGEST_QUEUE_URL in .env}
+  CHAT_QUEUE_URL: ${CHAT_QUEUE_URL:?set CHAT_QUEUE_URL in .env}
+  STT_QUEUE_URL: ${STT_QUEUE_URL:?set STT_QUEUE_URL in .env}
+  EMBED_QUEUE_URL: ${EMBED_QUEUE_URL:?set EMBED_QUEUE_URL in .env}
+  BROKER_TOKEN: ${BROKER_TOKEN:?set BROKER_TOKEN in .env}
+  EMBEDDING_SERVICE_URL: ${EMBEDDING_SERVICE_URL:-http://localhost:8001}
+  STT_SERVICE_URL: ${STT_SERVICE_URL:-http://localhost:8002}
+  LLM_SERVICE_URL: ${LLM_SERVICE_URL:-http://localhost:8003}
+  # Blank on purpose -- see shared/auth.py. Auth turns on once these are set,
+  # which is not expected to happen against local SQLite.
+  COGNITO_REGION: ""
+  COGNITO_USER_POOL_ID: ""
+  COGNITO_APP_CLIENT_ID: ""
+
+services:
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api: {condition: service_started}
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment: *app-env
+    volumes:
+      - appdata:/data
+    depends_on:
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+
+  ingest-worker:
+    build:
+      context: .
+      dockerfile: workers/ingest/Dockerfile
+    environment: *app-env
+    volumes:
+      - appdata:/data
+      - hfcache:/home/app/.cache/huggingface
+    depends_on:
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+
+  chat-worker:
+    build:
+      context: .
+      dockerfile: workers/chat/Dockerfile
+    environment: *app-env
+    volumes:
+      - appdata:/data
+    depends_on:
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  appdata:
+  hfcache:

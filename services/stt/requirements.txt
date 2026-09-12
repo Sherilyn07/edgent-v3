@@ -1,0 +1,9 @@
+# Just this service, for deploying it on its own.
+# On Colab use the combined ../requirements.txt instead.
+#
+# No storage client: the monolith uploads the media and takes the chunks back.
+fastapi>=0.115,<0.117
+uvicorn[standard]>=0.30,<0.35
+pydantic-settings>=2.3,<3
+python-multipart>=0.0.9        # receives the uploaded file
+faster-whisper>=1.0,<2

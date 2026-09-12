@@ -1,0 +1,20 @@
+# Holds the live BROKER_TOKEN and the queue URLs. The authoritative copies
+# live in Secrets Manager and SSM Parameter Store; this file is built from
+# them on each machine. Never commit it.
+.env
+.env.local
+frontend/.env.local
+
+# NOT ignored, deliberately: frontend/.env.production. It carries the Cognito
+# region, User Pool id and app client id -- none of which are secrets. They
+# ship inside the built JavaScript and are visible to any browser that loads
+# the app. They must be committed, because `vite build` reads them at image
+# build time.
+
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+.DS_Store
+*.log

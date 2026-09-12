@@ -1,0 +1,25 @@
+# Everything the three services need, in one environment, sharing one GPU.
+#
+#   pip install -r requirements.txt
+#
+# torch is deliberately NOT pinned here. On Colab it is already installed and
+# already matched to the runtime's CUDA driver; reinstalling it is the quickest
+# way to end up with a GPU that torch cannot see. run_colab.sh only installs it
+# if it is genuinely missing.
+
+# --- shared ---
+fastapi>=0.115,<0.117
+uvicorn[standard]>=0.30,<0.35
+pydantic>=2.7,<3
+pydantic-settings>=2.3,<3
+python-multipart>=0.0.9        # the STT service receives file uploads
+
+# --- embedding ---
+transformers>=4.40,<5
+chromadb>=0.5,<0.7
+
+# --- stt ---
+faster-whisper>=1.0,<2
+
+# --- llm ---
+accelerate>=0.33

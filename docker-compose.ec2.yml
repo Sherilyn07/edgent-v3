@@ -1,0 +1,66 @@
+# What runs on each EC2 instance in the Auto Scaling Group — web (nginx +
+# the built frontend) and api. Nothing else.
+#
+#   docker compose -f docker-compose.ec2.yml up -d --build
+#
+# What is NOT here, and why
+# --------------------------
+# redis        -- ElastiCache now. REDIS_URL below points at it directly.
+# cloudflared  -- CloudFront + an ALB replace the tunnel; nothing needs an
+#                 outbound-only quick tunnel any more.
+# ingest-worker, chat-worker
+#              -- their own ECS Fargate services, not containers on this box.
+#                 See DEPLOY.md's ECS section. The API only ever talks to
+#                 them indirectly, through SQS.
+#
+# Credentials come from the EC2 instance's IAM role, the same discipline
+# version 1 and version 2 used — there is no AWS key anywhere in this file or
+# in .env.
+
+name: edgentrag-v3
+
+x-app-env: &app-env
+  ENV: ${ENV:-aws}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env (RDS Postgres, from DEPLOY.md)}
+  REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env (ElastiCache, rediss:// for TLS)}
+  S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  INGEST_QUEUE_URL: ${INGEST_QUEUE_URL:?set INGEST_QUEUE_URL in .env}
+  CHAT_QUEUE_URL: ${CHAT_QUEUE_URL:?set CHAT_QUEUE_URL in .env}
+  STT_QUEUE_URL: ${STT_QUEUE_URL:?set STT_QUEUE_URL in .env}
+  EMBED_QUEUE_URL: ${EMBED_QUEUE_URL:?set EMBED_QUEUE_URL in .env}
+  # The only credential the GPU holds. Grants "ask for a job" and nothing else.
+  BROKER_TOKEN: ${BROKER_TOKEN:?set BROKER_TOKEN in .env}
+  # Starting addresses only — the real ones are set on the app's first screen
+  # and kept in Redis, because a Colab tunnel is renamed on every restart.
+  EMBEDDING_SERVICE_URL: ${EMBEDDING_SERVICE_URL:-http://localhost:8001}
+  STT_SERVICE_URL: ${STT_SERVICE_URL:-http://localhost:8002}
+  LLM_SERVICE_URL: ${LLM_SERVICE_URL:-http://localhost:8003}
+  # Cognito (new in v3). Leave unset to run with no auth gate -- see
+  # shared/auth.py.
+  COGNITO_REGION: ${COGNITO_REGION:-}
+  COGNITO_USER_POOL_ID: ${COGNITO_USER_POOL_ID:-}
+  COGNITO_APP_CLIENT_ID: ${COGNITO_APP_CLIENT_ID:-}
+  CORS_ORIGINS: ${CORS_ORIGINS:-*}
+
+services:
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api: {condition: service_started}
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment: *app-env
+    # Deliberately no `ports`. Only nginx can reach it, so port 8000 is not
+    # open on the host and needs no security-group rule.
+    restart: unless-stopped

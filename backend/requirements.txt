@@ -1,0 +1,8 @@
+# API-specific additions to shared/requirements.txt.
+#
+# alembic lives here, not in shared/requirements.txt, because only this image
+# ever runs scripts/migrate.py -- as the API itself (never; see
+# shared/db.py's docstring) or as a one-off ECS task built from this same
+# image (see DEPLOY.md's migration step). The workers have no reason to carry
+# it.
+alembic>=1.13,<2

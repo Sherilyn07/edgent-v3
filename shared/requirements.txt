@@ -1,0 +1,28 @@
+# Shared by the API and both workers. Every image installs this file plus its
+# own (backend/requirements.txt, workers/ingest/requirements.txt,
+# workers/chat/requirements.txt) -- see the Dockerfiles for the two-file
+# `pip install` that keeps this the single place these versions are pinned.
+
+# --- web ---
+fastapi>=0.115,<0.117
+uvicorn[standard]>=0.30,<0.35
+pydantic>=2.7,<3
+pydantic-settings>=2.3,<3
+python-multipart>=0.0.9
+
+# --- data ---
+SQLAlchemy[asyncio]>=2.0,<2.1
+aiosqlite>=0.20,<0.22        # local dev only -- see shared/db.py
+asyncpg>=0.29,<0.31           # the API, against RDS Postgres
+psycopg2-binary>=2.9,<3       # the workers, against RDS Postgres
+pgvector>=0.3,<0.4            # the Vector column type and its bind/result processors
+redis>=5.0,<6                 # conversation window, and pub/sub for streaming
+
+# --- aws ---
+boto3>=1.34,<2
+
+# --- outbound calls to the model services ---
+requests>=2.31,<3
+
+# --- auth (new in v3) ---
+python-jose[cryptography]>=3.3,<4    # verifying a Cognito ID token against its JWKS
