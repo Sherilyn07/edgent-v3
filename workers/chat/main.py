@@ -78,6 +78,23 @@ def handle(body: dict) -> None:
             # 2. the closest chunks, text and score together -- one SQL
             #    query against our own database, not a second round trip.
             sources = vectorstore.search(db, session_id, vector, settings.top_k)
+
+            # What retrieval actually returned, and how confident it was.
+            # When an answer is wrong, the cause is far more often "we
+            # retrieved the wrong passages" than "the model reasoned badly" --
+            # but without this line the retrieval step is invisible and you
+            # end up blaming the model. Scores run 0..1, higher is closer.
+            if sources:
+                log.info(
+                    "retrieved %d chunks for %s: %s",
+                    len(sources), message_id,
+                    ", ".join(f"{s['source']}#{s['chunk_id'].rsplit(':', 1)[-1]}"
+                              f"={s['score']:.3f}" for s in sources),
+                )
+            else:
+                log.warning("retrieved NOTHING for %s -- question: %.80s",
+                            message_id, question)
+
             _announce(session_id, row, stage="generating", sources=len(sources))
 
             # 3. the prompt, and the model.

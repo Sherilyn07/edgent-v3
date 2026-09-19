@@ -1,0 +1,48 @@
+flowchart TB
+
+    USER["👤 Browser<br/>study.edgent.in"]
+    COG["Cognito<br/>sign-in"]
+
+    ALB["Application Load Balancer<br/>HTTPS + WAF"]
+    API["EC2 · nginx + FastAPI API<br/><i>never does slow work</i>"]
+
+    SQS{{"SQS queues"}}
+
+    ING["ingest-worker<br/>Fargate"]
+    CHAT["chat-worker<br/>Fargate"]
+
+    DB[("RDS PostgreSQL<br/>rows + vectors")]
+    RED[("Redis<br/>pub/sub + history")]
+    S3[("S3<br/>files")]
+
+    GPU["Colab GPU<br/>embedding · speech · LLM"]
+
+    USER <--> COG
+    USER --> ALB --> API
+
+    USER -.->|"uploads direct, presigned"| S3
+
+    API --> SQS
+    API --> DB
+    SQS --> ING
+    SQS --> CHAT
+
+    ING --> S3
+    ING --> DB
+    CHAT --> DB
+
+    CHAT --> RED
+    RED -.->|"live progress"| API
+    API -.->|"event stream"| USER
+
+    GPU ==>|"asks API for work"| API
+    GPU <-.->|"presigned"| S3
+    CHAT --> GPU
+
+    classDef app fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef store fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f
+    classDef ext fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
+
+    class ALB,API,ING,CHAT app
+    class DB,RED,S3,SQS store
+    class USER,COG,GPU ext

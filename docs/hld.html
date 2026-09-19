@@ -1,0 +1,787 @@
+<title>Inside EdgentRAG v3</title>
+<style>
+  /* ---------- tokens: light is the base, both dark states override ---------- */
+  :root {
+    --paper:      #F6F7F9;
+    --card:       #FFFFFF;
+    --ink:        #15181C;
+    --ink-soft:   #4B5563;
+    --ink-faint:  #7A8593;
+    --rule:       #E1E5EA;
+    --rule-soft:  #EDF0F3;
+    --flow:       #0E7C86;   /* things in motion: requests, messages, events */
+    --store:      #A85B12;   /* things at rest: databases, buckets, queues   */
+    --flow-wash:  #E4F2F3;
+    --store-wash: #F7EDE1;
+    --shadow:     0 1px 2px rgba(20,30,45,.05), 0 8px 24px -12px rgba(20,30,45,.12);
+
+    --measure: 68ch;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --serif: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #121519;
+      --card:       #191D22;
+      --ink:        #E7EAEE;
+      --ink-soft:   #A6B0BD;
+      --ink-faint:  #7C8796;
+      --rule:       #2A3038;
+      --rule-soft:  #21262C;
+      --flow:       #45B9C4;
+      --store:      #D9973F;
+      --flow-wash:  #14282B;
+      --store-wash: #2A2117;
+      --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:      #121519;
+    --card:       #191D22;
+    --ink:        #E7EAEE;
+    --ink-soft:   #A6B0BD;
+    --ink-faint:  #7C8796;
+    --rule:       #2A3038;
+    --rule-soft:  #21262C;
+    --flow:       #45B9C4;
+    --store:      #D9973F;
+    --flow-wash:  #14282B;
+    --store-wash: #2A2117;
+    --shadow:     0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+
+  /* ---------- base ---------- */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 78ch;
+    margin: 0 auto;
+    padding: 4rem 1.5rem 6rem;
+  }
+  p, ul, ol, dl { max-width: var(--measure); }
+  p { margin: 0 0 1.1rem; }
+  a { color: var(--flow); text-underline-offset: 2px; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--flow); outline-offset: 3px; border-radius: 3px;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead { margin-bottom: 3.5rem; }
+  .kicker {
+    font-family: var(--sans);
+    font-size: .72rem; font-weight: 650;
+    letter-spacing: .13em; text-transform: uppercase;
+    color: var(--flow);
+    margin-bottom: .9rem;
+  }
+  h1 {
+    font-family: var(--sans);
+    font-size: clamp(2.1rem, 5.5vw, 3rem);
+    font-weight: 760;
+    letter-spacing: -.025em;
+    line-height: 1.08;
+    text-wrap: balance;
+    margin: 0 0 1rem;
+  }
+  .standfirst {
+    font-size: 1.16rem;
+    color: var(--ink-soft);
+    max-width: 60ch;
+    margin-bottom: 1.6rem;
+  }
+  .meta {
+    font-family: var(--sans); font-size: .82rem;
+    color: var(--ink-faint);
+    border-top: 1px solid var(--rule);
+    padding-top: .9rem;
+    display: flex; flex-wrap: wrap; gap: .4rem 1.4rem;
+  }
+
+  /* ---------- sections ---------- */
+  section { margin-top: 3.8rem; scroll-margin-top: 1.5rem; }
+  h2 {
+    font-family: var(--sans);
+    font-size: 1.55rem; font-weight: 720;
+    letter-spacing: -.02em; line-height: 1.2;
+    text-wrap: balance;
+    margin: 0 0 .3rem;
+    display: flex; align-items: baseline; gap: .7rem;
+  }
+  h2 .num {
+    font-size: .78rem; font-weight: 650;
+    color: var(--flow);
+    font-variant-numeric: tabular-nums;
+    flex: none;
+    padding-top: .15rem;
+  }
+  .deck {
+    font-family: var(--sans); font-size: .95rem;
+    color: var(--ink-faint);
+    margin: 0 0 1.6rem 2.05rem;
+    max-width: 58ch;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 1.05rem; font-weight: 680;
+    letter-spacing: -.01em;
+    margin: 2.2rem 0 .6rem;
+  }
+
+  /* ---------- text bits ---------- */
+  code {
+    font-family: var(--mono); font-size: .86em;
+    background: var(--rule-soft);
+    padding: .1em .36em; border-radius: 4px;
+  }
+  pre {
+    font-family: var(--mono); font-size: .82rem; line-height: 1.6;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 1rem 1.15rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  strong { font-weight: 700; }
+  ul, ol { padding-left: 1.3rem; margin: 0 0 1.1rem; }
+  li { margin-bottom: .45rem; }
+  li::marker { color: var(--ink-faint); }
+
+  /* ---------- callouts ---------- */
+  .note {
+    border-left: 3px solid var(--flow);
+    background: var(--flow-wash);
+    padding: .95rem 1.15rem;
+    border-radius: 0 8px 8px 0;
+    margin: 1.5rem 0;
+    max-width: var(--measure);
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note .tag {
+    font-family: var(--sans); font-size: .7rem; font-weight: 680;
+    letter-spacing: .1em; text-transform: uppercase;
+    color: var(--flow); display: block; margin-bottom: .4rem;
+  }
+  .trap { border-left-color: var(--store); background: var(--store-wash); }
+  .trap .tag { color: var(--store); }
+
+  /* ---------- figures ---------- */
+  figure {
+    margin: 2rem 0;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 1.5rem 1.25rem 1.1rem;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+  }
+  figure svg { display: block; width: 100%; height: auto; min-width: 440px; }
+  figcaption {
+    font-family: var(--sans); font-size: .84rem;
+    color: var(--ink-faint);
+    margin-top: 1rem; padding-top: .8rem;
+    border-top: 1px solid var(--rule-soft);
+    line-height: 1.5;
+  }
+  svg text { font-family: var(--sans); fill: var(--ink); }
+  svg .lbl { font-size: 12.5px; font-weight: 600; }
+  svg .sub { font-size: 10.5px; fill: var(--ink-faint); font-weight: 500; }
+  svg .edge { font-size: 10.5px; fill: var(--ink-soft); font-weight: 600; }
+  svg .box { fill: var(--card); stroke: var(--ink-faint); stroke-width: 1.3; }
+  svg .box-flow { fill: var(--flow-wash); stroke: var(--flow); stroke-width: 1.6; }
+  svg .box-store { fill: var(--store-wash); stroke: var(--store); stroke-width: 1.6; }
+  svg .wire { stroke: var(--ink-faint); stroke-width: 1.5; fill: none; }
+  svg .wire-flow { stroke: var(--flow); stroke-width: 2.2; fill: none; }
+  svg .wire-dash { stroke: var(--ink-faint); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+
+  /* ---------- tables ---------- */
+  .scroll { overflow-x: auto; margin: 1.4rem 0; }
+  table {
+    border-collapse: collapse; width: 100%;
+    font-family: var(--sans); font-size: .875rem;
+    min-width: 460px;
+  }
+  th, td {
+    text-align: left; padding: .6rem .8rem;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    font-weight: 680; font-size: .72rem;
+    letter-spacing: .07em; text-transform: uppercase;
+    color: var(--ink-faint);
+    border-bottom: 1.5px solid var(--rule);
+  }
+  td code { font-size: .82em; }
+
+  /* ---------- step list ---------- */
+  .steps { list-style: none; padding: 0; counter-reset: s; max-width: var(--measure); }
+  .steps > li {
+    counter-increment: s;
+    position: relative;
+    padding-left: 2.6rem;
+    margin-bottom: 1.3rem;
+  }
+  .steps > li::before {
+    content: counter(s);
+    position: absolute; left: 0; top: .08em;
+    width: 1.75rem; height: 1.75rem;
+    display: grid; place-items: center;
+    border: 1.5px solid var(--flow); color: var(--flow);
+    border-radius: 50%;
+    font-family: var(--sans); font-size: .78rem; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .steps h4 {
+    font-family: var(--sans); font-size: .97rem; font-weight: 680;
+    margin: 0 0 .25rem;
+  }
+  .steps p { margin: 0; color: var(--ink-soft); font-size: .97rem; }
+
+  /* ---------- glossary ---------- */
+  dl.gloss { max-width: var(--measure); }
+  dl.gloss dt {
+    font-family: var(--sans); font-weight: 680; font-size: .95rem;
+    margin-top: 1.1rem;
+  }
+  dl.gloss dd {
+    margin: .2rem 0 0; color: var(--ink-soft); font-size: .97rem;
+  }
+
+  footer {
+    margin-top: 4.5rem; padding-top: 1.4rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--sans); font-size: .82rem; color: var(--ink-faint);
+  }
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    .wrap { padding: 2.5rem 1.1rem 4rem; }
+    .deck { margin-left: 0; }
+    h2 { flex-direction: column; gap: .1rem; }
+  }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="kicker">High-Level Design · Session Notes</div>
+  <h1>Inside EdgentRAG v3</h1>
+  <p class="standfirst">How a system that reads your documents and answers questions about them is put together — and why almost every decision in it comes from one rule.</p>
+  <div class="meta">
+    <span>For engineers new to distributed systems</span>
+    <span>Reading time ~25 min</span>
+    <span>Reference: <code>github.com/abhaykes1/edgentrag-v3</code></span>
+  </div>
+</header>
+
+<section id="what">
+  <h2><span class="num">01</span> What we are building</h2>
+  <p class="deck">Start with the product, before any boxes and arrows.</p>
+
+  <p>A user signs in, uploads some files — PDFs, Word documents, plain text, even a video — waits while the system reads them, and then asks questions in plain English. The answers come back grounded in those specific documents, with a note saying which file each part came from.</p>
+
+  <p>That pattern has a name: <strong>RAG</strong>, short for <em>retrieval-augmented generation</em>. A language model on its own knows nothing about your files. RAG fixes that by doing two things in order:</p>
+
+  <ul>
+    <li><strong>Retrieval</strong> — find the handful of passages from your documents most likely to contain the answer.</li>
+    <li><strong>Generation</strong> — hand those passages to a language model along with the question, and ask it to answer using only what it was given.</li>
+  </ul>
+
+  <p>So the interesting engineering is not the model. It is everything around it: getting a 200-page PDF turned into searchable passages, finding the right four passages in milliseconds, and doing all of that without the user staring at a frozen screen.</p>
+
+  <div class="note">
+    <span class="tag">Why version 3</span>
+    <p>Version 1 was one program on one server. Version 2 restructured the <em>code</em> so the slow parts ran separately. Version 3 keeps that code and changes <em>where it runs</em> — onto managed AWS services, so the system survives losing a process, a machine, or the GPU.</p>
+  </div>
+</section>
+
+<section id="rule">
+  <h2><span class="num">02</span> The one rule</h2>
+  <p class="deck">Everything else in this document follows from this. If you remember one thing, remember this.</p>
+
+  <p class="standfirst" style="font-family: var(--sans); font-weight: 680; color: var(--ink); font-size: 1.3rem; line-height: 1.35; margin: 1.5rem 0 1.6rem;">The API never does slow work.</p>
+
+  <p>Here is the problem it solves. Imagine the naive version: the browser uploads a 60-page PDF, and the server — in the same request — downloads it, extracts the text, splits it into passages, sends each passage to a GPU to be converted into numbers, and stores the results. Then it replies.</p>
+
+  <p>That request might take four minutes. Four minutes is long enough for a great many things to go wrong:</p>
+
+  <ul>
+    <li>The browser gives up waiting and shows an error, even though the work is fine.</li>
+    <li>A load balancer between them closes the idle connection.</li>
+    <li>The server restarts, and the work simply <em>vanishes</em> — nobody wrote down that it had started.</li>
+    <li>Fifty users upload at once and the server holds fifty long-running requests, doing nothing else.</li>
+  </ul>
+
+  <p>The fix is to make the API's job trivially fast: <strong>validate the request, write a row to the database, put a message on a queue, and reply.</strong> Milliseconds. Something else does the slow part, later, and reports back.</p>
+
+  <figure>
+    <svg viewBox="0 0 720 250" role="img" aria-label="Two designs compared. In the naive design one server holds the browser's connection open for four minutes while it does all the work. In the queued design the API replies in milliseconds after writing a message to a queue, and a separate worker does the slow work.">
+      <defs>
+        <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <text class="lbl" x="8" y="18" style="fill:var(--ink-faint)">NAIVE — one request does everything</text>
+      <line x1="8" y1="28" x2="712" y2="28" stroke="var(--rule)" stroke-width="1"/>
+
+      <rect class="box" x="12" y="46" width="96" height="42" rx="6"/>
+      <text class="lbl" x="60" y="72" text-anchor="middle">Browser</text>
+
+      <rect class="box" x="252" y="46" width="150" height="42" rx="6"/>
+      <text class="lbl" x="327" y="72" text-anchor="middle">Server</text>
+
+      <rect class="box" x="556" y="46" width="96" height="42" rx="6"/>
+      <text class="lbl" x="604" y="72" text-anchor="middle">GPU</text>
+
+      <g color="var(--ink-faint)">
+        <line class="wire" x1="110" y1="60" x2="248" y2="60" marker-end="url(#a1)"/>
+        <line class="wire" x1="406" y1="60" x2="552" y2="60" marker-end="url(#a1)"/>
+      </g>
+      <text class="edge" x="179" y="52" text-anchor="middle">upload</text>
+      <text class="edge" x="479" y="52" text-anchor="middle">embed</text>
+
+      <line x1="110" y1="100" x2="652" y2="100" stroke="var(--store)" stroke-width="2.5" stroke-dasharray="6 4"/>
+      <text class="edge" x="381" y="118" text-anchor="middle" style="fill:var(--store); font-weight:700">connection held open ~4 minutes · lose it and the work is gone</text>
+
+      <text class="lbl" x="8" y="162" style="fill:var(--ink-faint)">QUEUED — what v3 does</text>
+      <line x1="8" y1="172" x2="712" y2="172" stroke="var(--rule)" stroke-width="1"/>
+
+      <rect class="box" x="12" y="188" width="96" height="42" rx="6"/>
+      <text class="lbl" x="60" y="214" text-anchor="middle">Browser</text>
+
+      <rect class="box-flow" x="168" y="188" width="104" height="42" rx="6"/>
+      <text class="lbl" x="220" y="214" text-anchor="middle">API</text>
+
+      <rect class="box-store" x="332" y="188" width="104" height="42" rx="6"/>
+      <text class="lbl" x="384" y="214" text-anchor="middle">Queue</text>
+
+      <rect class="box-flow" x="496" y="188" width="104" height="42" rx="6"/>
+      <text class="lbl" x="548" y="214" text-anchor="middle">Worker</text>
+
+      <rect class="box" x="640" y="188" width="66" height="42" rx="6"/>
+      <text class="lbl" x="673" y="214" text-anchor="middle">GPU</text>
+
+      <g color="var(--flow)">
+        <line class="wire-flow" x1="110" y1="202" x2="164" y2="202" marker-end="url(#a1)"/>
+        <line class="wire-flow" x1="274" y1="202" x2="328" y2="202" marker-end="url(#a1)"/>
+        <line class="wire-flow" x1="438" y1="202" x2="492" y2="202" marker-end="url(#a1)"/>
+      </g>
+      <g color="var(--ink-faint)">
+        <line class="wire" x1="602" y1="202" x2="636" y2="202" marker-end="url(#a1)"/>
+      </g>
+
+      <path class="wire-flow" d="M 218 232 L 218 244 L 62 244 L 62 234" marker-end="url(#a1)" color="var(--flow)"/>
+      <text class="edge" x="140" y="242" text-anchor="middle" style="fill:var(--flow); font-weight:700">202 Accepted — in milliseconds</text>
+    </svg>
+    <figcaption>The same upload, two ways. The difference is not speed — the work still takes four minutes — but <em>who waits</em>. In the lower design nothing holds a connection, and the message on the queue is a durable record that the work was requested.</figcaption>
+  </figure>
+
+  <p>Once you accept that rule, most of the architecture writes itself. You need a queue. You need workers to drain the queue. You need somewhere to store progress so the browser can ask "is it done yet?". And you need a way to push updates back to a browser that is no longer holding a request open. Those four needs account for most of the boxes you are about to see.</p>
+</section>
+
+<section id="upload">
+  <h2><span class="num">03</span> Follow one upload</h2>
+  <p class="deck">The clearest way to understand a system is to trace one thing through it end to end.</p>
+
+  <p>A user picks <code>lecture-notes.pdf</code> and clicks upload. Here is every step.</p>
+
+  <ol class="steps">
+    <li>
+      <h4>The browser asks the API for permission to upload</h4>
+      <p>It does <em>not</em> send the file. It sends the filename and size. The API creates a database row for the file and replies with a <strong>presigned URL</strong> — a temporary web address that allows exactly one upload of exactly one file, expiring in an hour.</p>
+    </li>
+    <li>
+      <h4>The browser uploads straight to storage</h4>
+      <p>Using that URL, the file goes directly from the browser to S3, Amazon's file storage. <strong>The file bytes never pass through our API.</strong> This is why a 2&nbsp;GB video works on a tiny server — the server only ever handled a filename.</p>
+    </li>
+    <li>
+      <h4>The browser tells the API "it landed"</h4>
+      <p>The API marks the session as processing and puts <strong>one message per file</strong> on the ingest queue. Then it replies. Total API time so far: a few milliseconds.</p>
+    </li>
+    <li>
+      <h4>An ingest worker picks up the message</h4>
+      <p>A separate program, running on a different machine, is continuously asking the queue "anything for me?". It takes the message, downloads the file from S3, and converts it to plain text.</p>
+    </li>
+    <li>
+      <h4>The text is cut into chunks</h4>
+      <p>A whole document is too big to feed a model, so it is split into overlapping passages of about 200 words — <strong>chunks</strong>. Each chunk remembers which file and which section it came from, so answers can cite a source.</p>
+    </li>
+    <li>
+      <h4>The chunks go into the database, and a job goes to the GPU</h4>
+      <p>Text first, deliberately. If everything after this fails, the text is still safely stored. The worker then queues an <em>embed</em> job for the GPU.</p>
+    </li>
+    <li>
+      <h4>The GPU turns each chunk into a vector</h4>
+      <p>An <strong>embedding</strong> is a list of 384 numbers that represents the <em>meaning</em> of a passage. Passages about similar things end up with similar numbers. This is what makes searching by meaning — rather than by keyword — possible.</p>
+    </li>
+    <li>
+      <h4>The vectors are written back beside the text</h4>
+      <p>A final short job writes the 384 numbers into the same database row that already holds the chunk's text. The file is marked done. When every file in the session is done, the session is marked ready.</p>
+    </li>
+  </ol>
+
+  <div class="note">
+    <span class="tag">Notice the shape</span>
+    <p>Every step ends. None of them waits for the next one. Each hand-off is a queue message, and a queue message is durable — if the worker dies at step 5, the message reappears and another worker starts step 5 again. Nothing is lost because nothing was only ever held in one program's memory.</p>
+  </div>
+</section>
+
+<section id="question">
+  <h2><span class="num">04</span> Follow one question</h2>
+  <p class="deck">Shorter, and latency matters here because a person is watching.</p>
+
+  <ol class="steps">
+    <li>
+      <h4>The API records the question and queues it</h4>
+      <p>Two rows are written — the user's question, and a blank placeholder for the answer — and a message goes on the <em>chat</em> queue. The API replies immediately with the id of that blank answer.</p>
+    </li>
+    <li>
+      <h4>A chat worker turns the question into a vector</h4>
+      <p>The same embedding model that processed the documents now processes the question, producing 384 numbers in the same "meaning space".</p>
+    </li>
+    <li>
+      <h4>The database finds the closest chunks</h4>
+      <p>One SQL query compares the question's vector against every chunk's vector in that session and returns the four closest. "Closest" is measured by <em>cosine distance</em> — an angle between two lists of numbers.</p>
+    </li>
+    <li>
+      <h4>A prompt is assembled</h4>
+      <p>The four passages, the recent conversation, and the question are pasted into one block of text with an instruction: <em>answer using only the context below; if it isn't there, say so.</em></p>
+    </li>
+    <li>
+      <h4>The language model answers, and the answer travels back</h4>
+      <p>The answer is published to a live event channel so the browser sees it immediately, and written to the database so a user who closed their laptop can still find it later.</p>
+    </li>
+  </ol>
+
+  <p>Step 3 is the part that changed most in version 3, and it is worth dwelling on. In version 2, the vectors lived in a separate search engine, so answering meant: ask the search engine for matching chunk IDs, then query the database to fetch the text for those IDs, then stitch the two together. In version 3 the vector and the text sit <strong>in the same database row</strong>, so it is one query. Fewer moving parts, and a whole category of bug — "I found a chunk ID but the text is missing" — becomes impossible.</p>
+</section>
+
+<section id="parts">
+  <h2><span class="num">05</span> The parts, one at a time</h2>
+  <p class="deck">Four programs we wrote, and the managed services they lean on.</p>
+
+  <h3>The four programs</h3>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Program</th><th>Job</th><th>Runs on</th></tr></thead>
+    <tbody>
+      <tr><td><strong>API</strong></td><td>Handle web requests. Validate, write a row, queue a message, reply. Nothing slow.</td><td>EC2 virtual machines behind a load balancer</td></tr>
+      <tr><td><strong>ingest-worker</strong></td><td>Convert documents, cut them into chunks, store them, hand embedding work to the GPU.</td><td>Fargate containers</td></tr>
+      <tr><td><strong>chat-worker</strong></td><td>Answer questions: embed, search, build the prompt, call the model.</td><td>Fargate containers</td></tr>
+      <tr><td><strong>AI services</strong></td><td>Three small servers wrapping the actual models: embedding, speech-to-text, and the language model.</td><td>A single Colab GPU</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>A useful detail: the ingest worker's container image is <strong>3.4&nbsp;GB</strong> and the chat worker's is <strong>116&nbsp;MB</strong> — thirty times smaller. Ingest carries a heavy document-conversion library; chat needs none of it. Because they are separate programs, the interactive path stays small and starts fast. In version 2 these were one image doing both jobs, and everything paid the 3.4&nbsp;GB cost.</p>
+
+  <h3>The managed services</h3>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Service</th><th>What it holds</th><th>Why not do it ourselves</th></tr></thead>
+    <tbody>
+      <tr><td><strong>PostgreSQL</strong> <span style="color:var(--ink-faint)">(RDS)</span></td><td>Sessions, files, chunks, messages — <em>and</em> the vectors, via an extension called pgvector.</td><td>Backups, failover and patching are somebody else's job.</td></tr>
+      <tr><td><strong>Redis</strong> <span style="color:var(--ink-faint)">(ElastiCache)</span></td><td>Recent conversation, live event delivery, where the GPU currently is, short-lived access tickets.</td><td>Fast shared memory that every process can reach.</td></tr>
+      <tr><td><strong>SQS</strong></td><td>Four queues: ingest, chat, speech-to-text, embed.</td><td>Durable hand-offs with automatic retry.</td></tr>
+      <tr><td><strong>S3</strong></td><td>Uploaded files, extracted text, chunk files, computed vectors.</td><td>Effectively unlimited storage the browser and GPU can reach directly.</td></tr>
+      <tr><td><strong>Cognito</strong></td><td>User accounts, passwords, sign-in.</td><td>We never store a password. There is no <code>users</code> table at all.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <span class="tag">Worth pausing on</span>
+    <p>Look at the database tables: <code>sessions</code>, <code>files</code>, <code>chunks</code>, <code>messages</code>. No users. Cognito owns the people; our database stores only an opaque user ID on each session, and every route checks <em>"is this session yours?"</em> before answering. Less code, and no password to leak.</p>
+  </div>
+</section>
+
+<section id="ideas">
+  <h2><span class="num">06</span> Three ideas that make it work</h2>
+  <p class="deck">If you understand these three, you understand the system.</p>
+
+  <h3>Idea one — a queue is a promise, not a pipe</h3>
+
+  <p>When a worker takes a message off an SQS queue, the message is <strong>not deleted</strong>. It becomes invisible for a while. Only when the worker finishes successfully and says "done" does it actually go away. If the worker crashes, the timer expires, the message becomes visible again, and somebody else picks it up.</p>
+
+  <p>That single behaviour is what makes the system survivable. Compare it with the naive design: a crashed server loses work silently. Here, a crashed worker loses nothing.</p>
+
+  <p>It also means every message might be delivered <em>more than once</em>, so every handler must be safe to run twice. In our system it is: chunk identifiers are predictable, and writing them uses an "insert or update" that produces the same result whether it runs once or five times.</p>
+
+  <p>Two queues, not one, for ingest and chat. Sharing them would put one person's fifty-file upload ahead of everybody's questions.</p>
+
+  <h3>Idea two — the GPU asks for work, nobody calls it</h3>
+
+  <p>This one surprises people. The natural design is for the backend to call the GPU: <code>POST /transcribe</code>, wait for the answer. That has three problems when the GPU is a Colab notebook: it needs a public address (which changes every restart), it needs credentials to read files, and a dropped connection loses the job.</p>
+
+  <p>So the arrow is turned around. The GPU calls <em>us</em>, repeatedly, asking: <em>anything to do?</em></p>
+
+  <figure>
+    <svg viewBox="0 0 700 230" role="img" aria-label="Comparison of two designs. In the old design the backend calls the GPU and must know its address, and the GPU needs cloud credentials. In the broker design the GPU calls the backend asking for work, so it needs no address and no credentials.">
+      <defs>
+        <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <text class="lbl" x="8" y="18" style="fill:var(--ink-faint)">BEFORE — backend calls the GPU</text>
+      <line x1="8" y1="27" x2="692" y2="27" stroke="var(--rule)" stroke-width="1"/>
+
+      <rect class="box" x="40" y="46" width="150" height="44" rx="6"/>
+      <text class="lbl" x="115" y="66" text-anchor="middle">Backend</text>
+      <text class="sub" x="115" y="81" text-anchor="middle">in AWS</text>
+
+      <rect class="box" x="470" y="46" width="170" height="44" rx="6"/>
+      <text class="lbl" x="555" y="66" text-anchor="middle">GPU</text>
+      <text class="sub" x="555" y="81" text-anchor="middle">needs a public address</text>
+
+      <g color="var(--store)">
+        <line class="wire" x1="194" y1="68" x2="466" y2="68" stroke="var(--store)" stroke-width="2.2" marker-end="url(#a2)"/>
+      </g>
+      <text class="edge" x="330" y="60" text-anchor="middle" style="fill:var(--store); font-weight:700">POST /transcribe · holds the connection</text>
+      <text class="edge" x="330" y="86" text-anchor="middle" style="fill:var(--store)">drop it and the job is lost</text>
+
+      <text class="lbl" x="8" y="140" style="fill:var(--ink-faint)">AFTER — the GPU asks for work</text>
+      <line x1="8" y1="149" x2="692" y2="149" stroke="var(--rule)" stroke-width="1"/>
+
+      <rect class="box-flow" x="40" y="168" width="150" height="44" rx="6"/>
+      <text class="lbl" x="115" y="188" text-anchor="middle">Backend</text>
+      <text class="sub" x="115" y="203" text-anchor="middle">holds the queues</text>
+
+      <rect class="box-flow" x="470" y="168" width="170" height="44" rx="6"/>
+      <text class="lbl" x="555" y="188" text-anchor="middle">GPU</text>
+      <text class="sub" x="555" y="203" text-anchor="middle">no address, no credentials</text>
+
+      <g color="var(--flow)">
+        <line class="wire-flow" x1="466" y1="190" x2="194" y2="190" marker-end="url(#a2)"/>
+      </g>
+      <text class="edge" x="330" y="182" text-anchor="middle" style="fill:var(--flow); font-weight:700">"anything to do?" — outbound only</text>
+    </svg>
+    <figcaption>The only change is the direction of the arrow, and it removes three problems at once: no inbound address to publish, no cloud credentials on the GPU, and no long-held connection to lose.</figcaption>
+  </figure>
+
+  <p>The GPU holds exactly one credential — a shared token that permits one thing: <em>ask for a job</em>. It cannot read a file, list a queue, or see another user's data. Each job it receives arrives with presigned URLs already inside it, so it can fetch its input and write its output without ever learning the storage bucket's name.</p>
+
+  <h3>Idea three — a worker cannot talk to a browser, so Redis relays</h3>
+
+  <p>The user wants live progress: <em>converting… chunking… 40 chunks stored…</em>. But the worker producing that progress is on a different machine from the API process holding the browser's connection. They will never be the same process.</p>
+
+  <p>So the worker <strong>publishes</strong> progress to a named channel in Redis. Whichever API process is holding that browser's connection is <strong>subscribed</strong> to that channel, and forwards whatever arrives down to the browser. This is <em>publish/subscribe</em>.</p>
+
+  <figure>
+    <svg viewBox="0 0 700 220" role="img" aria-label="A worker publishes an event to a Redis channel. Three API servers are subscribed; only the one holding this browser's connection forwards the event onward to the browser.">
+      <defs>
+        <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <rect class="box-flow" x="14" y="86" width="120" height="46" rx="6"/>
+      <text class="lbl" x="74" y="106" text-anchor="middle">Worker</text>
+      <text class="sub" x="74" y="121" text-anchor="middle">making the answer</text>
+
+      <rect class="box-store" x="230" y="86" width="128" height="46" rx="6"/>
+      <text class="lbl" x="294" y="106" text-anchor="middle">Redis channel</text>
+      <text class="sub" x="294" y="121" text-anchor="middle">events:session-42</text>
+
+      <rect class="box" x="452" y="20" width="112" height="40" rx="6"/>
+      <text class="lbl" x="508" y="45" text-anchor="middle">API #1</text>
+      <rect class="box-flow" x="452" y="88" width="112" height="40" rx="6"/>
+      <text class="lbl" x="508" y="113" text-anchor="middle">API #2</text>
+      <rect class="box" x="452" y="156" width="112" height="40" rx="6"/>
+      <text class="lbl" x="508" y="181" text-anchor="middle">API #3</text>
+
+      <rect class="box" x="620" y="88" width="66" height="40" rx="6"/>
+      <text class="lbl" x="653" y="113" text-anchor="middle">Browser</text>
+
+      <g color="var(--flow)">
+        <line class="wire-flow" x1="138" y1="109" x2="226" y2="109" marker-end="url(#a3)"/>
+        <line class="wire-flow" x1="362" y1="108" x2="448" y2="108" marker-end="url(#a3)"/>
+        <line class="wire-flow" x1="568" y1="108" x2="616" y2="108" marker-end="url(#a3)"/>
+      </g>
+      <g color="var(--ink-faint)">
+        <path class="wire-dash" d="M 362 100 L 405 100 L 405 40 L 448 40" marker-end="url(#a3)"/>
+        <path class="wire-dash" d="M 362 118 L 405 118 L 405 176 L 448 176" marker-end="url(#a3)"/>
+      </g>
+
+      <text class="edge" x="182" y="101" text-anchor="middle" style="fill:var(--flow); font-weight:700">publish</text>
+      <text class="edge" x="405" y="140" text-anchor="middle">all subscribed</text>
+      <text class="edge" x="592" y="101" text-anchor="middle" style="fill:var(--flow); font-weight:700">forward</text>
+      <text class="sub" x="508" y="212" text-anchor="middle">only #2 holds this browser's connection</text>
+    </svg>
+    <figcaption>Publish/subscribe lets a worker reach a browser it has no direct route to. With one API server you would not need this; with several, it is the only thing that works — which is exactly why it appears in version 3 and not version 1.</figcaption>
+  </figure>
+
+  <p>Publish/subscribe is deliberately unreliable: if nobody is listening, the message is dropped. That is correct here, because the database still records everything that matters. A user who was disconnected simply reloads and reads the answer from the database.</p>
+</section>
+
+<section id="where">
+  <h2><span class="num">07</span> Where it all runs</h2>
+  <p class="deck">The same four programs, placed on real infrastructure.</p>
+
+  <figure>
+    <svg viewBox="0 0 700 420" role="img" aria-label="Full deployment map. Browser reaches a load balancer, which reaches EC2 servers running nginx and the API. The API writes to queues, the database and Redis. Fargate workers read the queues. The Colab GPU calls the load balancer to ask for work and exchanges files with S3 directly.">
+      <defs>
+        <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <rect class="box" x="286" y="10" width="128" height="38" rx="6"/>
+      <text class="lbl" x="350" y="34" text-anchor="middle">Browser</text>
+
+      <rect class="box-flow" x="270" y="76" width="160" height="40" rx="6"/>
+      <text class="lbl" x="350" y="94" text-anchor="middle">Load balancer</text>
+      <text class="sub" x="350" y="108" text-anchor="middle">HTTPS · firewall</text>
+
+      <rect class="box-flow" x="270" y="144" width="160" height="44" rx="6"/>
+      <text class="lbl" x="350" y="164" text-anchor="middle">EC2 · API</text>
+      <text class="sub" x="350" y="179" text-anchor="middle">nginx + FastAPI</text>
+
+      <rect class="box-store" x="272" y="222" width="156" height="38" rx="6"/>
+      <text class="lbl" x="350" y="246" text-anchor="middle">SQS queues</text>
+
+      <rect class="box-flow" x="216" y="292" width="118" height="42" rx="6"/>
+      <text class="lbl" x="275" y="311" text-anchor="middle">ingest-worker</text>
+      <text class="sub" x="275" y="326" text-anchor="middle">Fargate</text>
+
+      <rect class="box-flow" x="366" y="292" width="118" height="42" rx="6"/>
+      <text class="lbl" x="425" y="311" text-anchor="middle">chat-worker</text>
+      <text class="sub" x="425" y="326" text-anchor="middle">Fargate</text>
+
+      <rect class="box-store" x="508" y="144" width="150" height="42" rx="6"/>
+      <text class="lbl" x="583" y="163" text-anchor="middle">PostgreSQL</text>
+      <text class="sub" x="583" y="178" text-anchor="middle">rows + vectors</text>
+
+      <rect class="box-store" x="508" y="212" width="150" height="42" rx="6"/>
+      <text class="lbl" x="583" y="231" text-anchor="middle">Redis</text>
+      <text class="sub" x="583" y="246" text-anchor="middle">events + history</text>
+
+      <rect class="box-store" x="34" y="144" width="140" height="42" rx="6"/>
+      <text class="lbl" x="104" y="163" text-anchor="middle">S3</text>
+      <text class="sub" x="104" y="178" text-anchor="middle">files</text>
+
+      <rect class="box" x="34" y="356" width="140" height="46" rx="6"/>
+      <text class="lbl" x="104" y="376" text-anchor="middle">Colab GPU</text>
+      <text class="sub" x="104" y="391" text-anchor="middle">3 model services</text>
+
+      <g color="var(--flow)">
+        <line class="wire-flow" x1="350" y1="50" x2="350" y2="72" marker-end="url(#a4)"/>
+        <line class="wire-flow" x1="350" y1="118" x2="350" y2="140" marker-end="url(#a4)"/>
+        <line class="wire-flow" x1="350" y1="190" x2="350" y2="218" marker-end="url(#a4)"/>
+        <line class="wire-flow" x1="322" y1="262" x2="290" y2="288" marker-end="url(#a4)"/>
+        <line class="wire-flow" x1="378" y1="262" x2="410" y2="288" marker-end="url(#a4)"/>
+      </g>
+
+      <g color="var(--ink-faint)">
+        <line class="wire" x1="434" y1="160" x2="504" y2="160" marker-end="url(#a4)"/>
+        <line class="wire" x1="434" y1="176" x2="504" y2="228" marker-end="url(#a4)"/>
+        <line class="wire" x1="488" y1="306" x2="560" y2="258" marker-end="url(#a4)"/>
+        <line class="wire" x1="488" y1="300" x2="560" y2="190" marker-end="url(#a4)"/>
+        <line class="wire" x1="212" y1="306" x2="150" y2="192" marker-end="url(#a4)"/>
+        <line class="wire" x1="266" y1="30" x2="120" y2="140" marker-end="url(#a4)"/>
+        <line class="wire" x1="104" y1="352" x2="104" y2="192" marker-end="url(#a4)"/>
+      </g>
+
+      <path class="wire-flow" d="M 178 372 L 620 372 L 620 300 L 448 300" marker-end="url(#a4)" color="var(--flow)" stroke-dasharray="0"/>
+      <text class="edge" x="400" y="366" text-anchor="middle" style="fill:var(--flow); font-weight:700">GPU asks the API for work</text>
+
+      <text class="edge" x="178" y="60" text-anchor="middle">upload direct</text>
+      <text class="edge" x="60" y="272" text-anchor="middle">presigned</text>
+      <text class="sub" x="583" y="286" text-anchor="middle">workers read and write both</text>
+    </svg>
+    <figcaption>Every arrow is a real connection in the deployed system. Notice that no arrow <em>enters</em> the workers: they are reachable from nowhere, because work arrives only by queue.</figcaption>
+  </figure>
+
+  <p>A few placement decisions worth explaining:</p>
+
+  <ul>
+    <li><strong>The API runs on virtual machines behind a load balancer</strong> so more can be added under load, and so losing one does not take the site down.</li>
+    <li><strong>The workers run as containers</strong> that scale on a different signal entirely: how many messages are waiting <em>per worker</em>. Not raw queue length — fifty messages means something different with one worker than with ten.</li>
+    <li><strong>The GPU is not in AWS at all.</strong> It is a Colab notebook, and it holds no cloud credentials. The broker pattern is what makes that possible.</li>
+  </ul>
+
+  <div class="note">
+    <span class="tag">The honest limitation</span>
+    <p>There is one GPU, and it does not scale. Every piece of AWS infrastructure here is sized to scale <em>up to</em> that ceiling, not past it. Saying so plainly is part of the design: a system that knows its own bottleneck is easier to reason about than one that pretends not to have one.</p>
+  </div>
+</section>
+
+<section id="traps">
+  <h2><span class="num">08</span> Five things that break quietly</h2>
+  <p class="deck">Real failures from deploying this. Each one produces no error message pointing at the cause.</p>
+
+  <div class="note trap">
+    <span class="tag">Trap 1 — the health check that takes everything down</span>
+    <p>A load balancer checks each server's health and removes unhealthy ones. If that check tests the <em>database</em>, then a two-second database blip fails <strong>every</strong> server at once, and the load balancer removes all of them. A recoverable hiccup becomes a total outage. The rule: a health check must test only what that one machine controls.</p>
+  </div>
+
+  <div class="note trap">
+    <span class="tag">Trap 2 — three separate layers that each kill live updates</span>
+    <p>Live progress needs a connection held open for minutes while mostly idle. Three things independently assume an idle connection is a dead one: the web server buffers responses, the load balancer times out after 60 seconds, and the CDN caches. Each needs its own opt-out. Miss any one and updates silently stop — with nothing wrong in any log.</p>
+  </div>
+
+  <div class="note trap">
+    <span class="tag">Trap 3 — the stripped header</span>
+    <p>A CDN removes most headers before passing a request on, including <code>Authorization</code>. Every signed-in request then fails at the edge with a permission error, while the backend is perfectly healthy. The test that catches it: send a deliberately invalid token. If the reply says <em>"unreadable token"</em> the header arrived; if it says <em>"missing token"</em> something removed it. Both are the same status code — so a test that only checks the status code tells you nothing.</p>
+  </div>
+
+  <div class="note trap">
+    <span class="tag">Trap 4 — the upload that blames the wrong component</span>
+    <p>Browsers refuse to upload to a different domain unless that domain explicitly allows it. Forget to configure it on the storage bucket and every upload fails — with the app reporting <em>"is the API running?"</em>. The API is running fine; the request never went there.</p>
+  </div>
+
+  <div class="note trap">
+    <span class="tag">Trap 5 — success reported over failure</span>
+    <p>A deploy script ran <code>docker push … | tail -3</code>. The push failed, but a pipeline reports the <em>last</em> command's result — so the script printed "done" over a hard failure and nothing was uploaded. Verify at the destination, not from the exit code of the thing that claimed to write there.</p>
+  </div>
+
+  <p>The pattern across all five: <strong>the error message points somewhere other than the cause.</strong> That is what makes distributed systems harder than single programs — not that more goes wrong, but that what goes wrong is reported by a component that was working fine.</p>
+</section>
+
+<section id="glossary">
+  <h2><span class="num">09</span> Glossary</h2>
+  <p class="deck">Terms used above, in plain language.</p>
+
+  <dl class="gloss">
+    <dt>Chunk</dt>
+    <dd>A passage of about 200 words cut from a document, small enough to fit in a prompt and specific enough to be a useful search result.</dd>
+
+    <dt>Embedding / vector</dt>
+    <dd>A list of 384 numbers representing the meaning of a piece of text. Similar meanings produce similar numbers, which is what lets you search by meaning rather than by keyword.</dd>
+
+    <dt>Queue</dt>
+    <dd>A durable list of pending work. A consumer takes a message, the message goes invisible rather than being deleted, and it is only removed once the consumer confirms success.</dd>
+
+    <dt>Worker</dt>
+    <dd>A program whose whole life is: ask the queue for work, do it, confirm, repeat. It listens on no port and can be reached by nothing.</dd>
+
+    <dt>Presigned URL</dt>
+    <dd>A temporary web address carrying a signature that grants one operation on one file until it expires. It lets a browser or an outside machine touch storage without holding any credentials.</dd>
+
+    <dt>Publish/subscribe</dt>
+    <dd>A messaging pattern where senders post to a named channel and every current listener gets a copy. Nobody addresses anybody directly, and if nobody is listening the message is simply dropped.</dd>
+
+    <dt>Idempotent</dt>
+    <dd>Safe to run more than once with the same result. Required of every queue handler, because queues may deliver a message twice.</dd>
+
+    <dt>Load balancer</dt>
+    <dd>A single public entry point that spreads requests across several servers and stops sending traffic to any that fail their health check.</dd>
+  </dl>
+</section>
+
+<footer>
+  EdgentRAG v3 — high-level design. Companion material: <code>DEPLOY.md</code> for the full deployment runbook and <code>scripts/create_*.sh</code> for each provisioning step with its reasoning.
+</footer>
+
+</div>

@@ -1,0 +1,104 @@
+%%{init: {'theme':'base','themeVariables':{'fontSize':'14px','lineColor':'#64748b'}}}%%
+flowchart TB
+
+    USER["👤 Browser"]
+
+    subgraph GCP["Google Cloud DNS — edgent.in"]
+        DNS["study.edgent.in<br/>CNAME → ALB<br/>TTL 300"]
+    end
+
+    subgraph EDGE["AWS Edge"]
+        CF["CloudFront<br/><i>blocked: account<br/>not yet verified</i>"]
+        WAFG["WAF — CLOUDFRONT scope<br/><i>created, unattached</i>"]
+        WAFR["WAF — REGIONAL scope<br/>3 managed groups<br/>2000 req / 5 min per IP"]
+    end
+
+    subgraph VPC["VPC — ap-southeast-1 · 3 AZs"]
+
+        subgraph APITIER["API tier — EC2 Auto Scaling Group"]
+            ALB["Application Load Balancer<br/>HTTPS 443 · ACM cert<br/>HTTP 80 → 301<br/><b>idle timeout 300s</b>"]
+            TG["Target Group :8080<br/><b>health check /api/health</b>"]
+            EC2["t2.small · 1 vCPU<br/><i>quota-limited, min=max=1</i><br/>nginx :8080 → api :8000"]
+        end
+
+        subgraph WORKERS["ECS Fargate — no inbound rules at all"]
+            ING["ingest-worker<br/>1 vCPU / 2 GB · 3.4 GB image<br/>Docling · 1–3 tasks"]
+            CHAT["chat-worker<br/>0.5 vCPU / 1 GB · 116 MB image<br/>no S3, no Docling · 1–2 tasks"]
+        end
+
+        subgraph STATE["State"]
+            RDS[("RDS PostgreSQL 16<br/>+ pgvector<br/>chunks.embedding vector-384<br/>HNSW cosine index")]
+            REDIS[("ElastiCache Redis 7.1<br/><b>cluster mode OFF</b><br/>pub/sub · history<br/>service URLs · SSE tickets")]
+        end
+
+        subgraph QUEUES["SQS — 4 work + 4 dead-letter"]
+            QI["edgentrag-v3-ingest"]
+            QC["edgentrag-v3-chat"]
+            QS["edgentrag-v3-stt"]
+            QE["edgentrag-v3-embed"]
+        end
+    end
+
+    S3[("S3 bucket<br/>raw · text · chunks · vectors<br/>CORS: PUT")]
+    COG["Cognito User Pool<br/>ID token → sub → owner_id<br/>group: admins"]
+
+    subgraph COLAB["Colab GPU — no AWS credentials"]
+        EMB["embedding :8001"]
+        STT["stt :8002"]
+        LLM["llm :8003"]
+    end
+
+    %% ---- request path ----
+    USER -->|"1 resolve"| DNS
+    DNS -.->|"future"| CF
+    CF -.-> WAFG
+    CF -.->|"origin"| ALB
+    DNS -->|"2 HTTPS today"| WAFR
+    WAFR --> ALB
+    ALB --> TG --> EC2
+
+    %% ---- auth ----
+    USER <-->|"SRP sign-in<br/>ID token"| COG
+    EC2 -->|"verify JWT via JWKS"| COG
+
+    %% ---- api writes ----
+    EC2 -->|"enqueue file jobs"| QI
+    EC2 -->|"enqueue question"| QC
+    EC2 -->|"presign PUT/GET"| S3
+    EC2 --> RDS
+    EC2 --> REDIS
+
+    %% ---- browser uploads straight to storage ----
+    USER ==>|"3 PUT file direct<br/>presigned · never via API"| S3
+
+    %% ---- workers ----
+    QI --> ING
+    QC --> CHAT
+    ING -->|"convert · chunk"| S3
+    ING -->|"chunks + vectors"| RDS
+    ING -->|"queue stt job"| QS
+    ING -->|"queue embed job"| QE
+    CHAT -->|"pgvector search"| RDS
+    CHAT -->|"publish tokens"| REDIS
+    REDIS -.->|"SSE fan-out"| EC2
+    EC2 -.->|"event stream"| USER
+
+    %% ---- the broker: GPU pulls, never called ----
+    EMB ===>|"4 POST /broker/claim<br/><b>outbound only</b>"| ALB
+    STT ===> ALB
+    ALB -->|"hand out job"| QS
+    ALB -->|"hand out job"| QE
+    STT <-->|"presigned GET/PUT"| S3
+    EMB <-->|"presigned GET/PUT"| S3
+    CHAT -->|"embed_query · generate"| EMB
+    CHAT --> LLM
+
+    classDef live fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef pending fill:#f1f5f9,stroke:#94a3b8,stroke-width:2px,stroke-dasharray:5 4,color:#475569
+    classDef ext fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
+    classDef store fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f
+
+    class ALB,TG,EC2,ING,CHAT,WAFR,DNS live
+    class CF,WAFG pending
+    class EMB,STT,LLM,COG,USER ext
+    class RDS,REDIS,S3,QI,QC,QS,QE store

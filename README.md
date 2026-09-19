@@ -1,5 +1,7 @@
 # EdgentRAG v3
 
+> Based on EdgentRAG by Shubham Aditya and Abhay from the Advanced AI Engineering course ([original](https://github.com/abhaykes1/edgentrag-v3)), used with their permission for learning purposes; extended with a us-east-1 console deployment and beginner guides.
+
 The version that survives more than one machine. Version 2 rewrote the code
 around one rule — the API never does slow work — but kept version 1's
 deployment: one EC2 box, one SQLite file, one Redis with no persistence. This
